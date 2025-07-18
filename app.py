@@ -108,7 +108,6 @@ base_dir = os.getcwd()
 aggr_data_dir = os.path.join(base_dir, "Aggregated_ridership/")
 gtfs_data_dir = os.path.join(base_dir, "GTFS Subway/")
 metadata_data_dir = os.path.join(base_dir, "MTA Metadata/")
-route_colours = pd.read_csv(os.path.join(metadata_data_dir, 'MTA_Colors.csv'))
 
 data_dict = {}
 for year in years:

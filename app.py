@@ -11,7 +11,14 @@ st.set_page_config(page_title="MTA Dashboard", layout="wide")
 
 @st.cache_data
 def load_file(dir = '', filename = 'station_1_ridership', filetype = 'csv'):
-    return pd.read_csv(os.path.join(dir, f'{filename}.{filetype}'))
+    if filetype == 'csv':
+        df = pd.read_csv(os.path.join(dir, f'{filename}.{filetype}'))
+    elif filetype == 'parquet':
+        df = pd.read_parquet(os.path.join(dir, f'{filename}.{filetype}'))
+    else:
+        print(f'*** Error with loading file {dir}{filename}.{filetype}')
+        df = None
+    return df
 
 # Functions 
 def first_monday(year):

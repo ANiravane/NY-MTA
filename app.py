@@ -10,17 +10,16 @@ import numpy as np
 st.set_page_config(page_title="MTA Dashboard", layout="wide")
 
 @st.cache_data
-def load_data():
-    return pd.read_csv("station_1_ridership.csv")
-
-df = load_data()
+def load_file(dir = '', filename = 'station_1_ridership', filetype = 'csv'):
+    return pd.read_csv(os.path.join(dir, f'{filename}.{filetype}'))
 
 # Functions 
 def first_monday(year):
     dates = pd.date_range(start=f'{year}-01-01', end=f'{year}-01-07')
     monday = dates[dates.weekday == 0][0]
     return monday.date()
-
+    
+@st.cache_data
 def render_routes(selected_routes = None, show_gen_shapes = False):
 
     fig = go.Figure()
@@ -57,7 +56,7 @@ def render_routes(selected_routes = None, show_gen_shapes = False):
                 showlegend=(shape_idx == 0)
             ))
 
-    stop_to_station = pd.read_csv(os.path.join(metadata_data_dir, 'gtfs_stop_closest_station.csv'))
+    stop_to_station = load_file(metadata_data_dir, 'gtfs_stop_closest_station', 'parquet')
     stations = stop_to_station[['closest_station_id', 'closest_station_name', 'latitude', 'longitude']].drop_duplicates()
 
     fig.add_trace(go.Scattermap(
@@ -111,8 +110,8 @@ metadata_data_dir = os.path.join(base_dir, "MTA Metadata/")
 
 data_dict = {}
 for year in years:
-    data_dict[year] = pd.read_csv(os.path.join(aggr_data_dir, f"hourly_per_station_{year}.csv"))
-station_complex_hierarchy = pd.read_csv(os.path.join(metadata_data_dir, 'station_complex_hierarchy.csv'))
+    data_dict[year] = load_file(aggr_data_dir, f"hourly_per_station_{year}", "parquet")
+station_complex_hierarchy = load_file(metadata_data_dir, 'station_complex_hierarchy', "parquet")
 
 time_grains = ['hourly', 'monthly', 'daily', 'weekly', 'yearly']
 stations = sorted(data_dict[years[0]]["station_complex_id"].unique())
@@ -330,6 +329,8 @@ if page == "Overview":
         st.dataframe(station_complex_hierarchy[station_complex_hierarchy['station_complex_id'].isin(top_n_stations)])
 
     elif ranking_criteria == 'Time of Day':
+
+        df = load_file()
         hour_range = st.sidebar.slider("Select Hour Range", 0, 23, (6, 20), key="hour_range")
         df_local = df[(df["hour"] >= hour_range[0]) & (df["hour"] <= hour_range[1])]
 
@@ -342,6 +343,7 @@ elif page == "Temporal":
     st.title("⏱️ Temporal Patterns")
 
     with st.expander("Hourly Distribution Across All Stations", expanded=True):
+        df = load_file()
         hour_range = st.slider("Select Hour Range", 0, 23, (6, 20), key="temporal_hour")
         df_local = df[(df["hour"] >= hour_range[0]) & (df["hour"] <= hour_range[1])]
 
@@ -357,11 +359,11 @@ elif page == "Temporal":
 # -------------------- SPATIAL PAGE -------------------- #
 elif page == "Spatial":
     st.title("🗺️ Station-Level Map")
-    stops = pd.read_csv(os.path.join(metadata_data_dir, f"gtfs_stops.csv"))
-    routes = pd.read_csv(os.path.join(metadata_data_dir, f"gtfs_routes.csv"))
-    trips = pd.read_csv(os.path.join(metadata_data_dir, f"gtfs_trips.csv"))
-    shapes = pd.read_csv(os.path.join(metadata_data_dir, f"gtfs_shapes.csv"))
-    routes_shapes = pd.read_csv(os.path.join(metadata_data_dir, 'routes_shapes.csv'))
+    stops = load_file(metadata_data_dir, f"gtfs_stops", "parquet")
+    routes = load_file(metadata_data_dir, f"gtfs_routes", "parquet")
+    trips = load_file(metadata_data_dir, f"gtfs_trips", "parquet")
+    shapes = load_file(metadata_data_dir, f"gtfs_shapes", "parquet")
+    routes_shapes = load_file(metadata_data_dir, "gtfs_routes_shapes", "parquet")
 
     st.sidebar.header("Map Filters")
     selected_routes = st.sidebar.multiselect(
@@ -376,6 +378,8 @@ elif page == "Spatial":
 
     # with st.expander("Station Heatmap", expanded=True):
     #     hour = st.slider("Select Hour", 0, 23, 8, key="spatial_hour")
+
+        # df = load_file()
     #     df_local = df[df["hour"] == hour]
 
     #     fig = px.scatter_mapbox(
@@ -397,6 +401,7 @@ elif page == "Fare Types":
     st.title("🎟️ Fare Type Comparison")
 
     with st.expander("Comparison by Fare Type", expanded=True):
+        df = load_file()
         hour = st.slider("Select Hour", 0, 23, 9, key="fare_hour")
         df_local = df[df["hour"] == hour]
 

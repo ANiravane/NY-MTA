@@ -47,7 +47,7 @@ def render_routes(selected_routes = None, show_gen_shapes = False):
         filtered_shape_paths = shapes[shapes['shape_id'].isin(filtered_shapes)]
         for shape_idx, (shape_id, shape_df) in enumerate(filtered_shape_paths.groupby("shape_id")):
             shape_df.sort_values(by = 'shape_pt_sequence', inplace=True)
-            fig.add_trace(go.Scattermapbox(
+            fig.add_trace(go.Scattermap(
                 mode="lines",
                 lon=shape_df["shape_pt_lon"],
                 lat=shape_df["shape_pt_lat"],
@@ -60,11 +60,11 @@ def render_routes(selected_routes = None, show_gen_shapes = False):
     stop_to_station = pd.read_csv(os.path.join(metadata_data_dir, 'gtfs_stop_closest_station.csv'))
     stations = stop_to_station[['closest_station_id', 'closest_station_name', 'latitude', 'longitude']].drop_duplicates()
 
-    fig.add_trace(go.Scattermapbox(
+    fig.add_trace(go.Scattermap(
         mode='markers+text',
         lon=stations["longitude"],
         lat=stations["latitude"],
-        marker = go.scattermapbox.Marker(
+        marker = go.scattermap.Marker(
             size = 14,
             color = 'black'
         ),

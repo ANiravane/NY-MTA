@@ -1,47 +1,18 @@
-import streamlit as st
-import pandas as pd
-import plotly.express as px
-from dash import Dash, dcc, html, Input, Output
+import global_config, data_loader, utility
+from data_loader import station_complex_hierarchy, shapes, routes, routes_shapes, mta_hourly_ridership, stop_to_station
 
-import os, json
+import streamlit as st
+import plotly.express as px
 import plotly.graph_objects as go
-from sklearn.linear_model import LinearRegression
+from streamlit.components.v1 import html as st_html
+
+import pandas as pd
 import numpy as np
-from pyproj import Transformer
-from datetime import datetime
+from sklearn.linear_model import LinearRegression
+
+import os, subprocess, sys, time, atexit
 
 st.set_page_config(page_title="MTA Dashboard", layout="wide")
-
-@st.cache_data
-def load_file(dir = '', filename = 'station_1_ridership', filetype = 'csv'):
-    if filetype == 'csv':
-        df = pd.read_csv(os.path.join(dir, f'{filename}.{filetype}'))
-    elif filetype == 'parquet':
-        df = pd.read_parquet(os.path.join(dir, f'{filename}.{filetype}'))
-    else:
-        print(f'*** Error with loading file {dir}{filename}.{filetype}')
-        df = None
-    return df
-
-@st.cache_data 
-def first_monday(year):
-    dates = pd.date_range(start=f'{year}-01-01', end=f'{year}-01-07')
-    monday = dates[dates.weekday == 0][0]
-    return monday.date()
-
-@st.cache_data
-def lonlat_to_xy(lon, lat):
-    x, y = transformer.transform(lon, lat)
-    return x, y
-
-@st.cache_data
-def get_route_colour(route_id):
-    matches = routes.loc[routes['route_id'] == route_id, 'route_color'].iloc[0]
-    if pd.notna(matches):
-        color = '#' + str(matches)
-    else:
-        color = '#' + str(routes.loc[routes['route_id'] == 'GS', 'route_color'].iloc[0])
-    return color
     
 @st.cache_data
 def render_routes(selected_routes = None, show_gen_shapes = False):
@@ -52,7 +23,7 @@ def render_routes(selected_routes = None, show_gen_shapes = False):
         selected_routes = routes['route_id'].unique()
 
     for route_id in selected_routes:
-        color = get_route_colour(route_id)
+        color = utility.get_route_colour(route_id)
         route_name = routes.loc[routes['route_id'] == route_id, 'route_long_name'].iloc[0]
 
         filtered_shapes = routes_shapes[((routes_shapes['route_id'] == route_id)
@@ -76,7 +47,7 @@ def render_routes(selected_routes = None, show_gen_shapes = False):
                 showlegend=(shape_idx == 0)
             ))
 
-    stop_to_station = load_file(metadata_data_dir, 'gtfs_stop_closest_station', 'parquet')
+    
     stations = stop_to_station[['closest_station_id', 'closest_station_name', 'latitude', 'longitude']].drop_duplicates()
 
     fig.add_trace(go.Scattermap(
@@ -120,80 +91,6 @@ def render_routes(selected_routes = None, show_gen_shapes = False):
 
     st.plotly_chart(fig, use_container_width=True)
 
-def base_map(shapes_xy):
-    fig = go.Figure()
-    color = "#C6C5C1"
-    # route_name = global_data['routes'].loc[global_data['routes']['route_id'] == route_id, 'route_long_name'].iloc[0]
-    for _, shape_df in shapes_xy.groupby("shape_id"):
-        shape_df.sort_values(by = 'shape_pt_sequence', inplace=True)
-        fig.add_trace(go.Scatter(
-            mode="lines",
-            x=shape_df["x"],
-            y=shape_df["y"],
-            line=dict(width=1, color=color)
-        ))
-
-    fig.add_trace(go.Scatter(
-        mode="markers+text",
-        x=stops_xy["x"],
-        y=stops_xy["y"],
-        marker=dict(size=3, color=color),
-        text=stops_xy["stop_id"],
-        textfont=dict(size=10, color="#000912")
-    ))
-    
-    fig.update_layout(
-        autosize=False,
-        width=600,
-        height=600,
-        xaxis=dict(
-            showgrid=False,
-            showticklabels=False,
-            zeroline=False
-        ),
-        yaxis=dict(
-            showgrid=False,       
-            showticklabels=False, 
-            zeroline=False        
-        ),
-        showlegend = False 
-    )
-
-    return fig
-
-@st.cache_data
-def load_all_data():
-    data_dict = {}
-    for year in years:
-        data_dict[year] = load_file(aggr_data_dir, f"hourly_per_station_{year}", "parquet")
-    return {
-        "data_dict": data_dict,
-        "station_complex_hierarchy": load_file(metadata_data_dir, 'station_complex_hierarchy', "parquet"),
-        "stop_times": load_file(metadata_data_dir, f"gtfs_stop_times", "parquet"),
-        "stops" : load_file(metadata_data_dir, f"gtfs_stops", "parquet"),
-        "shapes" : load_file(metadata_data_dir, f"gtfs_shapes", "parquet"),
-        "routes" : load_file(metadata_data_dir, f"gtfs_routes", "parquet"),
-        "routes_shapes" : load_file(metadata_data_dir, "gtfs_routes_shapes", "parquet")
-    }
-
-
-# Variables
-years = [2024, 2023]
-transformer = Transformer.from_crs("EPSG:4326", "EPSG:3857")
-theme_colors = {2024: "firebrick", 2023: "darkslateblue", 2022: "darkgoldenrod", 2021: "darkseagreen", 2020: "darkorchid"}
-base_dir = os.getcwd()
-aggr_data_dir = os.path.join(base_dir, "Aggregated_ridership/")
-gtfs_data_dir = os.path.join(base_dir, "GTFS Subway/")
-metadata_data_dir = os.path.join(base_dir, "MTA Metadata/")
-time_grains = ['hourly', 'monthly', 'daily', 'weekly', 'yearly']
-
-global_data = load_all_data()
-stations = sorted(global_data['data_dict'][years[0]]["station_complex_id"].unique())
-days_of_week = {
-    "Full Week": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
-    "Weekend": ["Saturday", "Sunday"],
-    "Weekday": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
-}
 
 # -------------------- PAGE NAVIGATION -------------------- #
 st.sidebar.title("Navigation")
@@ -201,118 +98,29 @@ page = st.sidebar.radio("Go to", ["Through the day", "Overview", "Temporal", "Sp
 
 # -------------------- THROUGH THE DAY -------------------- #
 if page == "Through the day":
+    # def _spawn_dash():
+    #     dash_cmd = [sys.executable, 'dashapp_trips.py']
+    #     proc = subprocess.Popen(dash_cmd, env = os.environ)
+    #     time.sleep(1.0)
+    #     return proc
+
+    # def ensure_fresh_dash():
+    #     old = st.session_state.get('_dash_trips_proc')
+    #     if old and old.poll() is None:
+    #         old.kill()
+    #     new = _spawn_dash()
+    #     st.session_state['_dash_trips_proc'] = new 
+    #     atexit.register(new.kill)
+
+    # ensure_fresh_dash()
+    
     st.title("Through the Day")
-    
-    
-    # trips = load_file(metadata_data_dir, f"gtfs_trips", "parquet")
-    
-    
-
-    selected_routes = ['7', 'M', 'E']
-
-    shapes_xy = global_data['shapes'].copy()
-    filtered_shapes = global_data['routes_shapes'][((global_data['routes_shapes']['route_id'].isin(selected_routes))
-                                        & (global_data['routes_shapes']['source'] == 'MTA')) 
-                                        | ((global_data['routes_shapes']['route_id'].isin(selected_routes))
-                                        & (global_data['routes_shapes']['source'] == 'Generated')
-                                        & (global_data['routes_shapes']['existing_shapes'] == False))]
-    filtered_shapes = filtered_shapes['shape_id']
-    shapes_xy = shapes_xy[shapes_xy['shape_id'].isin(filtered_shapes)]
-
-    shapes_xy[['x', 'y']] = [lonlat_to_xy(lon, lat) for lon, lat in zip(shapes_xy['shape_pt_lon'], shapes_xy['shape_pt_lat'])]
-    center_x = (shapes_xy['x'].max() - shapes_xy['x']. min()).mean()
-    center_y = (shapes_xy['y'].max() - shapes_xy['y']. min()).mean()
-
-    shapes_xy['x'] = (shapes_xy['x'] - center_x) / 1000
-    shapes_xy['y'] = (shapes_xy['y'] - center_y) / 1000
-
-    global_data['stop_times'] = global_data['stop_times'][global_data['stop_times']['arrival_time'] <= 60]
-    global_data['stop_times'] = global_data['stop_times'][global_data['stop_times']['route_id'].isin(selected_routes)]
-
-    global_data['stop_times'][['x', 'y']] = [lonlat_to_xy(lon, lat) for lon, lat in zip(global_data['stop_times']['stop_lon'], global_data['stop_times']['stop_lat'])]
-
-    global_data['stop_times']['x'] = (global_data['stop_times']['x'] - center_x) / 1000
-    global_data['stop_times']['y'] = (global_data['stop_times']['y'] - center_y) / 1000
-
-    stops_xy = global_data['stops'][global_data['stops']['stop_id'].isin(global_data['stop_times']['stop_id'].unique())]
-    stops_xy[['x', 'y']] = [lonlat_to_xy(lon, lat) for lon, lat in zip(stops_xy['stop_lon'], stops_xy['stop_lat'])]
-
-    stops_xy['x'] = (stops_xy['x'] - center_x) / 1000
-    stops_xy['y'] = (stops_xy['y'] - center_y) / 1000
-    
-
-    fig1 = base_map(shapes_xy)
-
-
-    fig2 = go.Figure()
-    
-    stop_order = {stop: i+1 for i, stop in enumerate(global_data['stop_times']['stop_id'].unique())}
-    for trip_idx, (trip_id, trip_df) in enumerate(global_data['stop_times'].groupby("trip_id")):
-        
-        color = get_route_colour(trip_df.iloc[0]['route_id'])
-        trip_df['stop_order_x'] = trip_df["stop_id"].apply(lambda x: stop_order[x])
-        stop_range = pd.DataFrame({'stop_order_x': range(trip_df['stop_order_x'].min(), trip_df['stop_order_x'].max() + 1)})
-
-        # Step 2: Merge with original df to fill in missing levels with NaNs
-        trip_df = stop_range.merge(trip_df, on='stop_order_x', how='left')
-
-        fig2.add_trace(go.Scatter(
-            mode="lines",
-            x=trip_df['stop_order_x'],
-            y=trip_df["arrival_time"],
-            line=dict(width=1, color=color),
-            customdata=[[stop['stop_id'], stop["x"], stop["y"], stop['route_color']] for stop in trip_df],
-            hoverinfo='none'
-        ))
-
-    fig2.update_layout(
-        autosize=False,
-        width=600,
-        height=600,
-        xaxis=dict(
-            showgrid=False,
-            showticklabels=False,
-            zeroline=False
-        ),
-        yaxis=dict(
-            showgrid=False,       
-            showticklabels=True, 
-            zeroline=False        
-        ),
-        showlegend = False 
+    st_html(
+        f'<iframe src="http://localhost:{global_config.trips_port}" style="border:none;width:100%;height:600px;" scrolling="auto"></iframe>',
+        height=620,
     )
+
     
-    # st.plotly_chart(fig1, use_container_width=False)
-    # st.plotly_chart(fig2, use_container_width=False)
-
-    # col1, col2 = st.columns(2)
-    # with col1:
-    #     st.plotly_chart(fig1, use_container_width=False)
-    # with col2:
-    #     st.plotly_chart(fig2, use_container_width=False)
-
-    app = Dash(__name__)
-    app.layout = html.Div([
-        dcc.Graph(id=base_map()),  # Time-Stop Graph
-        dcc.Graph(id='fig2')   # Map or train position view
-    ])
-
-    @app.callback(
-        Output('fig1', 'figure'),
-        Input('fig2', 'hoverData')
-    )
-    def update_fig1(hover):
-        fig = base_map()
-
-        if hover:
-            x_hover = hover['points'][0]['x']
-            # Add vertical line at hovered x
-            fig.add_shape(type="line",
-                        x0=x_hover, x1=x_hover,
-                        y0=0, y1=10,
-                        line=dict(color='red', dash='dash'),
-                        name='hover-line')
-        return fig
 # -------------------- OVERVIEW PAGE -------------------- #
 elif page == "Overview":
     st.title("📊 Overview")
@@ -325,13 +133,13 @@ elif page == "Overview":
                                     ['Total Ridership in 2024', 'YoY Growth', 'Day of week', 'Time of Day'])
     
     if ranking_criteria == 'Total Ridership in 2024':
-        top_n_stations = global_data['data_dict'][2024].groupby('station_complex_id')['ridership'].sum().nlargest(select_n).index.tolist()
-        st.dataframe(global_data['station_complex_hierarchy'][global_data['station_complex_hierarchy']['station_complex_id'].isin(top_n_stations)])
+        top_n_stations = mta_hourly_ridership[2024].groupby('station_complex_id')['ridership'].sum().nlargest(select_n).index.tolist()
+        st.dataframe(station_complex_hierarchy[station_complex_hierarchy['station_complex_id'].isin(top_n_stations)])
         selected_stn_data = {}
         remng_stn_data = {}
-        for year in years:
-            selected_stn_data[year] = global_data['data_dict'][year][global_data['data_dict'][year]['station_complex_id'].isin(top_n_stations)]
-            remng_stn_data[year] = global_data['data_dict'][year][~global_data['data_dict'][year]['station_complex_id'].isin(top_n_stations)]
+        for year in global_config.years:
+            selected_stn_data[year] = mta_hourly_ridership[year][mta_hourly_ridership[year]['station_complex_id'].isin(top_n_stations)]
+            remng_stn_data[year] = mta_hourly_ridership[year][~mta_hourly_ridership[year]['station_complex_id'].isin(top_n_stations)]
             
             
         with st.expander("🎯 Ridership Supported", expanded=True):
@@ -402,13 +210,13 @@ elif page == "Overview":
             
             fig = go.Figure()
 
-            for year in years:
+            for year in global_config.years:
                 fig.add_trace(go.Scatter(
                     x=selected_stn_data[year]['dayofyear'],
                     y=selected_stn_data[year]['ridership'],
                     mode='lines+markers',
                     name=f'{year}',
-                    line=dict(color=theme_colors[year], width=2),
+                    line=dict(color=global_config.theme_colors[year], width=2),
                     marker=dict(size=4),
                     text = pd.to_datetime(selected_stn_data[year]['date']).dt.strftime('%b %d') + f', {year} (' + pd.to_datetime(selected_stn_data[year]['date']).dt.strftime('%a') + ')<br>Ridership : ' + selected_stn_data[year]['ridership'].apply(lambda x: f'{x/1e6:.2f}M'),  
                     hovertemplate=("%{text}<extra></extra>")
@@ -435,14 +243,14 @@ elif page == "Overview":
             st.plotly_chart(fig, use_container_width=True)
 
     elif ranking_criteria == 'YoY Growth':
-        stacked_data = global_data['data_dict'][2024].copy()
+        stacked_data = mta_hourly_ridership[2024].copy()
         stacked_data['year'] = 2024
-        global_data['data_dict'][2024]['day_num'] = global_data['data_dict'][2024]['dayofyear']
-        max_day_num = global_data['data_dict'][2024]['day_num'].max()
-        for year in years[1:]:
-            global_data['data_dict'][year]['year'] = year
-            global_data['data_dict'][year]['day_num'] = global_data['data_dict'][year]['dayofyear'] + max_day_num
-            stacked_data = pd.concat([stacked_data, global_data['data_dict'][year]], axis=0, ignore_index=True)
+        mta_hourly_ridership[2024]['day_num'] = mta_hourly_ridership[2024]['dayofyear']
+        max_day_num = mta_hourly_ridership[2024]['day_num'].max()
+        for year in global_config.years[1:]:
+            mta_hourly_ridership[year]['year'] = year
+            mta_hourly_ridership[year]['day_num'] = mta_hourly_ridership[year]['dayofyear'] + max_day_num
+            stacked_data = pd.concat([stacked_data, mta_hourly_ridership[year]], axis=0, ignore_index=True)
         stacked_data['ridership'] = stacked_data['ridership'].drop_duplicates(inplace=True)
 
         stacked_data = stacked_data.groupby(['station_complex_id', 'day_num']).agg({
@@ -480,14 +288,14 @@ elif page == "Overview":
             top_n_stations = trend_df['slope'].nsmallest(select_n).index.tolist()
         elif growth_criteria == "Consistent":
             top_n_stations = trend_df['slope'].abs().nsmallest(select_n).index.tolist()
-        st.dataframe(global_data['station_complex_hierarchy'][global_data['station_complex_hierarchy']['station_complex_id'].isin(top_n_stations)])
+        st.dataframe(station_complex_hierarchy[station_complex_hierarchy['station_complex_id'].isin(top_n_stations)])
 
 
     elif ranking_criteria == 'Day of week':
         selected_dow = st.sidebar.selectbox("Time of Week", options =
-                                            days_of_week.keys())
-        selected_days = days_of_week[selected_dow]
-        df = global_data['data_dict'][2024][global_data['data_dict'][2024]['day_of_week'].isin(selected_days)]
+                                            global_config.days_of_week.keys())
+        selected_days = global_config.days_of_week[selected_dow]
+        df = mta_hourly_ridership[2024][mta_hourly_ridership[2024]['day_of_week'].isin(selected_days)]
         month_range = st.sidebar.slider("Select Time Range (Jan - Dec 2024)", 1, 12, (9, 12), key="month_range")
 
         df['date'] = pd.to_datetime(df['date'])
@@ -508,16 +316,16 @@ elif page == "Overview":
         
 
         top_n_stations = df['station_complex_id'].nlargest(select_n).index.tolist()
-        st.dataframe(global_data['station_complex_hierarchy'][global_data['station_complex_hierarchy']['station_complex_id'].isin(top_n_stations)])
+        st.dataframe(station_complex_hierarchy[station_complex_hierarchy['station_complex_id'].isin(top_n_stations)])
 
     elif ranking_criteria == 'Time of Day':
 
-        df = load_file()
+        df = data_loader.load_parquet()
         hour_range = st.sidebar.slider("Select Hour Range", 0, 23, (6, 20), key="hour_range")
         df_local = df[(df["hour"] >= hour_range[0]) & (df["hour"] <= hour_range[1])]
 
-        top_n_stations = global_data['data_dict'][2024].groupby('station_complex_id')['ridership'].sum().nlargest(select_n).index.tolist()
-        st.dataframe(global_data['station_complex_hierarchy'][global_data['station_complex_hierarchy']['station_complex_id'].isin(top_n_stations)])
+        top_n_stations = mta_hourly_ridership[2024].groupby('station_complex_id')['ridership'].sum().nlargest(select_n).index.tolist()
+        st.dataframe(station_complex_hierarchy[station_complex_hierarchy['station_complex_id'].isin(top_n_stations)])
     
 
 # -------------------- TEMPORAL PAGE -------------------- #
@@ -525,7 +333,7 @@ elif page == "Temporal":
     st.title("⏱️ Temporal Patterns")
 
     with st.expander("Hourly Distribution Across All Stations", expanded=True):
-        df = load_file()
+        df = data_loader.load_parquet()
         hour_range = st.slider("Select Hour Range", 0, 23, (6, 20), key="temporal_hour")
         df_local = df[(df["hour"] >= hour_range[0]) & (df["hour"] <= hour_range[1])]
 
@@ -541,11 +349,6 @@ elif page == "Temporal":
 # -------------------- SPATIAL PAGE -------------------- #
 elif page == "Spatial":
     st.title("🗺️ Station-Level Map")
-    stops = load_file(metadata_data_dir, f"gtfs_stops", "parquet")
-    routes = load_file(metadata_data_dir, f"gtfs_routes", "parquet")
-    trips = load_file(metadata_data_dir, f"gtfs_trips", "parquet")
-    shapes = load_file(metadata_data_dir, f"gtfs_shapes", "parquet")
-    routes_shapes = load_file(metadata_data_dir, "gtfs_routes_shapes", "parquet")
 
     st.sidebar.header("Map Filters")
     selected_routes = st.sidebar.multiselect(
@@ -561,7 +364,7 @@ elif page == "Fare Types":
     st.title("🎟️ Fare Type Comparison")
 
     with st.expander("Comparison by Fare Type", expanded=True):
-        df = load_file()
+        df = data_loader.load_parquet()
         hour = st.slider("Select Hour", 0, 23, 9, key="fare_hour")
         df_local = df[df["hour"] == hour]
 

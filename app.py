@@ -1,5 +1,5 @@
 import global_config, data_loader, utility
-from data_loader import station_complex_hierarchy, shapes, routes, routes_shapes, mta_hourly_ridership, stop_to_station
+from data_loader import hourly_ridership, stations, routes, routes_shapes, shape_geometry
 
 import streamlit as st
 import plotly.express as px
@@ -24,31 +24,23 @@ def render_routes(selected_routes = None, show_gen_shapes = False):
 
     for route_id in selected_routes:
         color = utility.get_route_colour(route_id)
-        route_name = routes.loc[routes['route_id'] == route_id, 'route_long_name'].iloc[0]
+        route_long_name = routes.loc[routes['route_id'] == route_id, 'route_long_name'].iloc[0]
 
-        filtered_shapes = routes_shapes[((routes_shapes['route_id'] == route_id)
-                                        & (routes_shapes['source'] == 'MTA')) 
-                                        | ((routes_shapes['route_id'] == route_id)
-                                        & (routes_shapes['source'] == 'Generated')
-                                        & (routes_shapes['existing_shapes'] == False))]
-        filtered_shapes = filtered_shapes['shape_id']
-        # filtered_shapes = trips[trips['route_id'] == route_id][['route_id', 'shape_id']].drop_duplicates()['shape_id'].unique()
+        filtered_shapes = routes_shapes[(routes_shapes['route_id'] == route_id)
+                                        & (routes_shapes['shape_for_map'])]['shape_id']
         
-        filtered_shape_paths = shapes[shapes['shape_id'].isin(filtered_shapes)]
-        for shape_idx, (shape_id, shape_df) in enumerate(filtered_shape_paths.groupby("shape_id")):
+        filtered_shape_geometry = shape_geometry[shape_geometry['shape_id'].isin(filtered_shapes)]
+        for shape_idx, (shape_id, shape_df) in enumerate(filtered_shape_geometry.groupby("shape_id")):
             shape_df.sort_values(by = 'shape_pt_sequence', inplace=True)
             fig.add_trace(go.Scattermap(
                 mode="lines",
                 lon=shape_df["shape_pt_lon"],
                 lat=shape_df["shape_pt_lat"],
                 line=dict(width=4, color=color), 
-                name=f"{route_id} {route_name}" if shape_idx == 0 else None,  # only show legend once
+                name=f"{route_id} {route_long_name}" if shape_idx == 0 else None,  # only show legend once
                 legendgroup=route_id,       # group shapes of the same route
                 showlegend=(shape_idx == 0)
             ))
-
-    
-    stations = stop_to_station[['closest_station_id', 'closest_station_name', 'latitude', 'longitude']].drop_duplicates()
 
     fig.add_trace(go.Scattermap(
         mode='markers+text',
@@ -58,10 +50,10 @@ def render_routes(selected_routes = None, show_gen_shapes = False):
             size = 14,
             color = 'black'
         ),
-        text = stations['closest_station_id'],
+        text = stations['station_complex_id'],
         textfont=dict(size=14, color='black'),
         textposition='top center',
-        hovertext=stations['closest_station_name'],
+        hovertext=stations['station_complex'],
         hoverinfo='text',
         name='Stations'
     ))
@@ -133,13 +125,13 @@ elif page == "Overview":
                                     ['Total Ridership in 2024', 'YoY Growth', 'Day of week', 'Time of Day'])
     
     if ranking_criteria == 'Total Ridership in 2024':
-        top_n_stations = mta_hourly_ridership[2024].groupby('station_complex_id')['ridership'].sum().nlargest(select_n).index.tolist()
-        st.dataframe(station_complex_hierarchy[station_complex_hierarchy['station_complex_id'].isin(top_n_stations)])
+        top_n_stations = hourly_ridership[2024].groupby('station_complex_id')['ridership'].sum().nlargest(select_n).index.tolist()
+        st.dataframe(stations[stations['station_complex_id'].isin(top_n_stations)])
         selected_stn_data = {}
         remng_stn_data = {}
         for year in global_config.years:
-            selected_stn_data[year] = mta_hourly_ridership[year][mta_hourly_ridership[year]['station_complex_id'].isin(top_n_stations)]
-            remng_stn_data[year] = mta_hourly_ridership[year][~mta_hourly_ridership[year]['station_complex_id'].isin(top_n_stations)]
+            selected_stn_data[year] = hourly_ridership[year][hourly_ridership[year]['station_complex_id'].isin(top_n_stations)]
+            remng_stn_data[year] = hourly_ridership[year][~hourly_ridership[year]['station_complex_id'].isin(top_n_stations)]
             
             
         with st.expander("🎯 Ridership Supported", expanded=True):
@@ -243,14 +235,14 @@ elif page == "Overview":
             st.plotly_chart(fig, use_container_width=True)
 
     elif ranking_criteria == 'YoY Growth':
-        stacked_data = mta_hourly_ridership[2024].copy()
+        stacked_data = hourly_ridership[2024].copy()
         stacked_data['year'] = 2024
-        mta_hourly_ridership[2024]['day_num'] = mta_hourly_ridership[2024]['dayofyear']
-        max_day_num = mta_hourly_ridership[2024]['day_num'].max()
+        hourly_ridership[2024]['day_num'] = hourly_ridership[2024]['dayofyear']
+        max_day_num = hourly_ridership[2024]['day_num'].max()
         for year in global_config.years[1:]:
-            mta_hourly_ridership[year]['year'] = year
-            mta_hourly_ridership[year]['day_num'] = mta_hourly_ridership[year]['dayofyear'] + max_day_num
-            stacked_data = pd.concat([stacked_data, mta_hourly_ridership[year]], axis=0, ignore_index=True)
+            hourly_ridership[year]['year'] = year
+            hourly_ridership[year]['day_num'] = hourly_ridership[year]['dayofyear'] + max_day_num
+            stacked_data = pd.concat([stacked_data, hourly_ridership[year]], axis=0, ignore_index=True)
         stacked_data['ridership'] = stacked_data['ridership'].drop_duplicates(inplace=True)
 
         stacked_data = stacked_data.groupby(['station_complex_id', 'day_num']).agg({
@@ -288,14 +280,14 @@ elif page == "Overview":
             top_n_stations = trend_df['slope'].nsmallest(select_n).index.tolist()
         elif growth_criteria == "Consistent":
             top_n_stations = trend_df['slope'].abs().nsmallest(select_n).index.tolist()
-        st.dataframe(station_complex_hierarchy[station_complex_hierarchy['station_complex_id'].isin(top_n_stations)])
+        st.dataframe(stations[stations['station_complex_id'].isin(top_n_stations)])
 
 
     elif ranking_criteria == 'Day of week':
         selected_dow = st.sidebar.selectbox("Time of Week", options =
                                             global_config.days_of_week.keys())
         selected_days = global_config.days_of_week[selected_dow]
-        df = mta_hourly_ridership[2024][mta_hourly_ridership[2024]['day_of_week'].isin(selected_days)]
+        df = hourly_ridership[2024][hourly_ridership[2024]['day_of_week'].isin(selected_days)]
         month_range = st.sidebar.slider("Select Time Range (Jan - Dec 2024)", 1, 12, (9, 12), key="month_range")
 
         df['date'] = pd.to_datetime(df['date'])
@@ -316,7 +308,7 @@ elif page == "Overview":
         
 
         top_n_stations = df['station_complex_id'].nlargest(select_n).index.tolist()
-        st.dataframe(station_complex_hierarchy[station_complex_hierarchy['station_complex_id'].isin(top_n_stations)])
+        st.dataframe(stations[stations['station_complex_id'].isin(top_n_stations)])
 
     elif ranking_criteria == 'Time of Day':
 
@@ -324,8 +316,8 @@ elif page == "Overview":
         hour_range = st.sidebar.slider("Select Hour Range", 0, 23, (6, 20), key="hour_range")
         df_local = df[(df["hour"] >= hour_range[0]) & (df["hour"] <= hour_range[1])]
 
-        top_n_stations = mta_hourly_ridership[2024].groupby('station_complex_id')['ridership'].sum().nlargest(select_n).index.tolist()
-        st.dataframe(station_complex_hierarchy[station_complex_hierarchy['station_complex_id'].isin(top_n_stations)])
+        top_n_stations = hourly_ridership[2024].groupby('station_complex_id')['ridership'].sum().nlargest(select_n).index.tolist()
+        st.dataframe(stations[stations['station_complex_id'].isin(top_n_stations)])
     
 
 # -------------------- TEMPORAL PAGE -------------------- #

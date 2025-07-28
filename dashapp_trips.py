@@ -1,5 +1,5 @@
-from data_loader import routes_shapes, stop_times, stops
-import data_loader, global_config, utility
+from data_loader import stops, routes_shapes, shape_geometry, shapes_trips, trip_stop_times
+import utility
 
 import argparse, datetime
 import pandas as pd
@@ -7,12 +7,12 @@ import pandas as pd
 from dash import Dash, dcc, html, Input, Output, State
 import plotly.graph_objects as go
 
-def route_fig_base_map(shapes_xy, stops_xy):
+def route_fig_base_map(shape_geometry_xy, stops_xy):
     fig = go.Figure()
     color = "#C6C5C1"
     # route_name = global_data['routes'].loc[global_data['routes']['route_id'] == route_id, 'route_long_name'].iloc[0]
 
-    for _, shape_df in shapes_xy.groupby("shape_id"):
+    for _, shape_df in shape_geometry_xy.groupby("shape_id"):
         shape_df.sort_values(by = 'shape_pt_sequence', inplace=True)
         # Routes mapped in XY plane - one trace per shape
         fig.add_trace(go.Scatter(
@@ -50,48 +50,50 @@ def route_fig_base_map(shapes_xy, stops_xy):
     return fig
 
 selected_routes = ['7', 'M', 'E']
-shapes = data_loader.load_parquet(global_config.filepath['shapes'])
+filtered_routes_shapes = routes_shapes[routes_shapes['route_id'].isin(selected_routes)]
+shapes_for_map = filtered_routes_shapes[filtered_routes_shapes['shape_for_map']]['shape_id']
+shapes_for_trip = filtered_routes_shapes['shape_id']
 
-shapes_xy = shapes.copy()
-filtered_shapes = routes_shapes[((routes_shapes['route_id'].isin(selected_routes))
-                                    & (routes_shapes['source'] == 'MTA')) 
-                                    | ((routes_shapes['route_id'].isin(selected_routes))
-                                    & (routes_shapes['source'] == 'Generated')
-                                    & (routes_shapes['existing_shapes'] == False))]
-filtered_shapes = filtered_shapes['shape_id']
-shapes_xy = shapes_xy[shapes_xy['shape_id'].isin(filtered_shapes)]
-
-shapes_xy[['x', 'y']] = [utility.lonlat_to_xy(lon, lat) for lon, lat in zip(shapes_xy['shape_pt_lon'], shapes_xy['shape_pt_lat'])]
-center_x = (shapes_xy['x'].max() - shapes_xy['x']. min()).mean()
-center_y = (shapes_xy['y'].max() - shapes_xy['y']. min()).mean()
-
-shapes_xy['x'] = (shapes_xy['x'] - center_x) / 1000
-shapes_xy['y'] = (shapes_xy['y'] - center_y) / 1000
+shape_geometry_xy = shape_geometry.copy()
+shape_geometry_xy = shape_geometry_xy[shape_geometry_xy['shape_id'].isin(shapes_for_map)]
+shape_geometry_xy[['x', 'y']] = [utility.lonlat_to_xy(lon, lat) for lon, lat in zip(shape_geometry_xy['shape_pt_lon'], shape_geometry_xy['shape_pt_lat'])]
+center_x = (shape_geometry_xy['x'].max() - shape_geometry_xy['x']. min()).mean()
+center_y = (shape_geometry_xy['y'].max() - shape_geometry_xy['y']. min()).mean()
+shape_geometry_xy['x'] = (shape_geometry_xy['x'] - center_x) / 1000
+shape_geometry_xy['y'] = (shape_geometry_xy['y'] - center_y) / 1000
 
 # stop_times = stop_times[stop_times['arrival_time'] <= 360]
-stop_times = stop_times[stop_times['route_id'].isin(selected_routes)]
+filtered_trips = shapes_trips[shapes_trips['shape_id'].isin(shapes_for_trip)]['trip_id']
+trip_stop_times = trip_stop_times[trip_stop_times['trip_id'].isin(filtered_trips)][['trip_id', 'stop_id', 'arrival_time']]
 
-stop_times[['x', 'y']] = [utility.lonlat_to_xy(lon, lat) for lon, lat in zip(stop_times['stop_lon'], stop_times['stop_lat'])]
+trip_stop_times = trip_stop_times.merge(stops[['stop_id', 'stop_lat', 'stop_lon']], on='stop_id', how='left')
 
-stop_times['x'] = (stop_times['x'] - center_x) / 1000
-stop_times['y'] = (stop_times['y'] - center_y) / 1000
-
-stops_xy = stops[stops['stop_id'].isin(stop_times['stop_id'].unique())]
+trip_stop_times[['x', 'y']] = [utility.lonlat_to_xy(lon, lat) for lon, lat in zip(trip_stop_times['stop_lon'], trip_stop_times['stop_lat'])]
+trip_stop_times['x'] = (trip_stop_times['x'] - center_x) / 1000
+trip_stop_times['y'] = (trip_stop_times['y'] - center_y) / 1000
+stops_xy = trip_stop_times[trip_stop_times['stop_id'].isin(trip_stop_times['stop_id'].unique())]
 stops_xy[['x', 'y']] = [utility.lonlat_to_xy(lon, lat) for lon, lat in zip(stops_xy['stop_lon'], stops_xy['stop_lat'])]
-
 stops_xy['x'] = (stops_xy['x'] - center_x) / 1000
 stops_xy['y'] = (stops_xy['y'] - center_y) / 1000
 
-stop_order = {stop: i+1 for i, stop in enumerate(stop_times['stop_id'].unique())}
+stop_order = {stop: i+1 for i, stop in enumerate(trip_stop_times['stop_id'].unique())}
 x_axis_to_stop = {}
 for key, value in stop_order.items():
     x_axis_to_stop[value] = key
 
-route_fig = route_fig_base_map(shapes_xy, stops_xy)
+route_fig = route_fig_base_map(shape_geometry_xy, stops_xy)
 trip_line_fig = go.Figure()
 
-for _, (trip_id, trip_df) in enumerate(stop_times.groupby("trip_id")):
-    route_id = trip_df.iloc[0]['route_id']
+trip_to_route = {trip_id: utility.get_parent_value('shape_id', utility.get_parent_value('trip_id', trip_id, 
+                                                                                        'shape_id', shapes_trips
+                                                                                        ), 
+                                                   'route_id', routes_shapes
+                                                   ) for trip_id in trip_stop_times['trip_id'].unique()}
+
+# trip_stop_times['route_id'] = trip_stop_times['trip_id'].apply(lambda x: utility.get_parent_value('shape_id', utility.get_parent_value('trip_id', x, 'shape_id', shapes_trips), 'route_id', routes_shapes))
+
+for _, (trip_id, trip_df) in enumerate(trip_stop_times.groupby("trip_id")):
+    route_id = trip_to_route[trip_id]
     color = utility.get_route_colour(route_id)
     trip_df['stop_order_x'] = trip_df["stop_id"].apply(lambda x: stop_order[x])
     stop_range = pd.DataFrame({'stop_order_x': range(trip_df['stop_order_x'].min(), trip_df['stop_order_x'].max() + 1)})
@@ -160,7 +162,7 @@ app.layout = html.Div([
     # Right Scrollable Content Area (Trip Line Graph - trip_line_fig)
     html.Div([
         dcc.Graph(id='trip_line_fig', figure=trip_line_fig, 
-                #   config={'displayModeBar': False},
+                  config={'displayModeBar': False},
                 style={
                     'height': '1800px',
                     # 'height': 'auto',  # Allow the graph to extend vertically as much as needed.
@@ -248,7 +250,6 @@ def update_fig1_on_fig2_hover(fig2_hoverData, fig):
 
     if fig2_hoverData:
         hover_y_plotly_num = fig2_hoverData['points'][0]['y']
-        print(hover_y_plotly_num)
 
         # fig.add_trace(go.Scatter(
         #     mode="markers",

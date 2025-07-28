@@ -38,3 +38,6 @@ def convert_minutes_to_datetime(minutes_since_midnight):
     # This handles cases where minutes_since_midnight might be > 1439 (e.g., 25 hours)
     hours = hours % 24
     return datetime.datetime.combine(reference_date, datetime.time(hour=hours, minute=minutes))
+
+def get_parent_value(child_col, child_val, parent_col, table):
+    return table[table[child_col] == child_val][parent_col].iloc[0]

@@ -27,7 +27,7 @@ def render_routes(selected_routes = None, show_gen_shapes = False):
         route_long_name = routes.loc[routes['route_id'] == route_id, 'route_long_name'].iloc[0]
 
         filtered_shapes = routes_shapes[(routes_shapes['route_id'] == route_id)
-                                        & (routes_shapes['shape_for_map'])]['shape_id']
+                                        & (routes_shapes['shape_for_map'])]['shape_id'].unique()
         
         filtered_shape_geometry = shape_geometry[shape_geometry['shape_id'].isin(filtered_shapes)]
         for shape_idx, (shape_id, shape_df) in enumerate(filtered_shape_geometry.groupby("shape_id")):

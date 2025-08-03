@@ -51,8 +51,8 @@ def route_fig_base_map(shape_geometry_xy, stops_xy):
 
 selected_routes = ['7', 'M', 'E']
 filtered_routes_shapes = routes_shapes[routes_shapes['route_id'].isin(selected_routes)]
-shapes_for_map = filtered_routes_shapes[filtered_routes_shapes['shape_for_map']]['shape_id']
-shapes_for_trip = filtered_routes_shapes['shape_id']
+shapes_for_map = filtered_routes_shapes[filtered_routes_shapes['shape_for_map']]['shape_id'].unique()
+shapes_for_trip = filtered_routes_shapes['shape_id'].unique()
 
 shape_geometry_xy = shape_geometry.copy()
 shape_geometry_xy = shape_geometry_xy[shape_geometry_xy['shape_id'].isin(shapes_for_map)]
@@ -63,7 +63,7 @@ shape_geometry_xy['x'] = (shape_geometry_xy['x'] - center_x) / 1000
 shape_geometry_xy['y'] = (shape_geometry_xy['y'] - center_y) / 1000
 
 # stop_times = stop_times[stop_times['arrival_time'] <= 360]
-filtered_trips = shapes_trips[shapes_trips['shape_id'].isin(shapes_for_trip)]['trip_id']
+filtered_trips = shapes_trips[shapes_trips['shape_id'].isin(shapes_for_trip)]['trip_id'].unique()
 trip_stop_times = trip_stop_times[trip_stop_times['trip_id'].isin(filtered_trips)][['trip_id', 'stop_id', 'arrival_time']]
 
 trip_stop_times = trip_stop_times.merge(stops[['stop_id', 'stop_lat', 'stop_lon']], on='stop_id', how='left')
